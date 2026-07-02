@@ -83,26 +83,33 @@ enum class Tab { Downloader, Browser }
 fun MainScreen(downloaderViewModel: DownloaderViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
     var currentTab by remember { mutableStateOf(Tab.Downloader) }
     var browserInitialUrl by remember { mutableStateOf<String?>(null) }
+    var isBarsVisible by remember { mutableStateOf(true) }
     
     Scaffold(
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)) {
-                NavigationBarItem(
-                    selected = currentTab == Tab.Downloader,
-                    onClick = { currentTab = Tab.Downloader },
-                    icon = { Icon(Icons.Default.Download, contentDescription = "Downloader") },
-                    label = { Text("Downloader") }
-                )
-                NavigationBarItem(
-                    selected = currentTab == Tab.Browser,
-                    onClick = { currentTab = Tab.Browser },
-                    icon = { Icon(Icons.Default.Public, contentDescription = "Browser") },
-                    label = { Text("Browser") }
-                )
+            androidx.compose.animation.AnimatedVisibility(
+                visible = isBarsVisible || currentTab == Tab.Downloader,
+                enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }),
+                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it })
+            ) {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)) {
+                    NavigationBarItem(
+                        selected = currentTab == Tab.Downloader,
+                        onClick = { currentTab = Tab.Downloader },
+                        icon = { Icon(Icons.Default.Download, contentDescription = "Downloader") },
+                        label = { Text("Downloader") }
+                    )
+                    NavigationBarItem(
+                        selected = currentTab == Tab.Browser,
+                        onClick = { currentTab = Tab.Browser },
+                        icon = { Icon(Icons.Default.Public, contentDescription = "Browser") },
+                        label = { Text("Browser") }
+                    )
+                }
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+        Box(modifier = Modifier.padding(bottom = padding.calculateBottomPadding()).fillMaxSize()) {
             FBDownloaderScreen(
                 modifier = Modifier
                     .fillMaxSize()
@@ -119,6 +126,8 @@ fun MainScreen(downloaderViewModel: DownloaderViewModel = androidx.lifecycle.vie
                     .offset(x = if (currentTab == Tab.Browser) 0.dp else 10000.dp),
                 isActive = currentTab == Tab.Browser,
                 initialUrl = browserInitialUrl,
+                isBarsVisible = isBarsVisible,
+                onBarsVisibilityChange = { isBarsVisible = it },
                 onVideoDetected = { url ->
                     downloaderViewModel.setUrl(url)
                     currentTab = Tab.Downloader
@@ -128,14 +137,20 @@ fun MainScreen(downloaderViewModel: DownloaderViewModel = androidx.lifecycle.vie
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initialUrl: String? = null, onVideoDetected: ((String) -> Unit)? = null) {
+fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initialUrl: String? = null, isBarsVisible: Boolean = true, onBarsVisibilityChange: (Boolean) -> Unit = {}, onVideoDetected: ((String) -> Unit)? = null) {
     var urlInput by remember { mutableStateOf("https://app.shikho.com/") }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var isDesktopMode by remember { mutableStateOf(false) }
     var detectedVideoUrl by remember { mutableStateOf<String?>(null) }
-    var isTopBarVisible by remember { mutableStateOf(true) }
+    val isImeVisible = androidx.compose.foundation.layout.WindowInsets.Companion.isImeVisible
+    
+    LaunchedEffect(isImeVisible) {
+        if (webView is ObservableWebView) {
+            (webView as ObservableWebView).isImeVisible = isImeVisible
+        }
+    }
     
     val mobileUserAgent = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
     val desktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -155,16 +170,16 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
     LaunchedEffect(isDesktopMode) {
         webView?.settings?.apply {
             userAgentString = if (isDesktopMode) desktopUserAgent else mobileUserAgent
-            useWideViewPort = isDesktopMode
-            loadWithOverviewMode = isDesktopMode
-            builtInZoomControls = isDesktopMode
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            builtInZoomControls = true
             displayZoomControls = false
         }
         webView?.reload()
     }
     
     Box(modifier = modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().padding(top = if (isTopBarVisible) 64.dp else 0.dp)) {
+        Box(modifier = Modifier.fillMaxSize().padding(top = if (isBarsVisible) 64.dp else 0.dp)) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->
@@ -173,21 +188,24 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
                         settings.domStorageEnabled = true
                         settings.databaseEnabled = true
                         settings.javaScriptCanOpenWindowsAutomatically = true
+                        settings.setSupportMultipleWindows(true)
                         settings.mediaPlaybackRequiresUserGesture = false
                         settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        settings.useWideViewPort = isDesktopMode
-                        settings.loadWithOverviewMode = isDesktopMode
-                        settings.builtInZoomControls = isDesktopMode
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
+                        settings.builtInZoomControls = true
                         settings.displayZoomControls = false
                         settings.userAgentString = if (isDesktopMode) desktopUserAgent else mobileUserAgent
                         
                         onScrollChangedCallback = { _, t, _, oldt ->
-                            if (t > oldt && t > 50) {
-                                // Scrolling down
-                                isTopBarVisible = false
-                            } else if (t < oldt) {
-                                // Scrolling up
-                                isTopBarVisible = true
+                            if (!isImeVisible) {
+                                if (t > oldt && t > 50) {
+                                    // Scrolling down
+                                    onBarsVisibilityChange(false)
+                                } else if (t < oldt) {
+                                    // Scrolling up
+                                    onBarsVisibilityChange(true)
+                                }
                             }
                         }
                         
@@ -234,7 +252,29 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
                                 }
                             }
                         }
-                        webChromeClient = WebChromeClient()
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?): Boolean {
+                                val result = view?.hitTestResult
+                                val data = result?.extra
+                                if (data != null) {
+                                    view.loadUrl(data)
+                                    return false
+                                }
+                                
+                                val newWebView = WebView(context).apply {
+                                    webViewClient = object : WebViewClient() {
+                                        override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                                            this@apply.loadUrl(request?.url.toString())
+                                            return true
+                                        }
+                                    }
+                                }
+                                val transport = resultMsg?.obj as? WebView.WebViewTransport
+                                transport?.webView = newWebView
+                                resultMsg?.sendToTarget()
+                                return true
+                            }
+                        }
                         loadUrl(urlInput)
                         webView = this
                     }
@@ -266,7 +306,7 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
         }
         
         androidx.compose.animation.AnimatedVisibility(
-            visible = isTopBarVisible,
+            visible = isBarsVisible,
             enter = androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
             exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
             modifier = Modifier.align(Alignment.TopCenter)

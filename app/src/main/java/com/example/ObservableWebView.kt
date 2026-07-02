@@ -9,6 +9,7 @@ class ObservableWebView @JvmOverloads constructor(
 ) : WebView(context, attrs, defStyleAttr) {
 
     var onScrollChangedCallback: ((Int, Int, Int, Int) -> Unit)? = null
+    var isImeVisible: Boolean = false
 
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
         super.onScrollChanged(l, t, oldl, oldt)
