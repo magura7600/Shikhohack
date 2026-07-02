@@ -135,6 +135,7 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
     var webView by remember { mutableStateOf<WebView?>(null) }
     var isDesktopMode by remember { mutableStateOf(false) }
     var detectedVideoUrl by remember { mutableStateOf<String?>(null) }
+    var isTopBarVisible by remember { mutableStateOf(true) }
     
     val mobileUserAgent = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
     val desktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -162,61 +163,12 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
         webView?.reload()
     }
     
-    Column(modifier = modifier) {
-        CenterAlignedTopAppBar(
-            title = { 
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = urlInput,
-                        onValueChange = { urlInput = it },
-                        modifier = Modifier.weight(1f).height(50.dp),
-                        singleLine = true,
-                        shape = RoundedCornerShape(24.dp),
-                        placeholder = { Text("Enter URL") },
-                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    IconButton(
-                        onClick = { isDesktopMode = !isDesktopMode },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isDesktopMode) Icons.Default.Computer else Icons.Default.Smartphone,
-                            contentDescription = "Toggle Desktop Mode",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    IconButton(
-                        onClick = { 
-                            val u = if (urlInput.startsWith("http")) urlInput else "https://$urlInput"
-                            webView?.loadUrl(u) 
-                        },
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(20.dp))
-                    ) {
-                        Icon(Icons.Default.ArrowForward, contentDescription = "Go", tint = MaterialTheme.colorScheme.onPrimary)
-                    }
-                }
-            },
-            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp)
-            )
-        )
-        
-        Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().padding(top = if (isTopBarVisible) 64.dp else 0.dp)) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->
-                    WebView(context).apply {
+                    ObservableWebView(context).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         settings.databaseEnabled = true
@@ -228,6 +180,16 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
                         settings.builtInZoomControls = isDesktopMode
                         settings.displayZoomControls = false
                         settings.userAgentString = if (isDesktopMode) desktopUserAgent else mobileUserAgent
+                        
+                        onScrollChangedCallback = { _, t, _, oldt ->
+                            if (t > oldt && t > 50) {
+                                // Scrolling down
+                                isTopBarVisible = false
+                            } else if (t < oldt) {
+                                // Scrolling up
+                                isTopBarVisible = true
+                            }
+                        }
                         
                         val cookieManager = CookieManager.getInstance()
                         cookieManager.setAcceptCookie(true)
@@ -299,6 +261,68 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 ) {
                     Icon(Icons.Default.Download, contentDescription = "Download Detected Video", modifier = Modifier.size(28.dp))
+                }
+            }
+        }
+        
+        androidx.compose.animation.AnimatedVisibility(
+            visible = isTopBarVisible,
+            enter = androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
+            exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().height(64.dp),
+                color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp),
+                shadowElevation = 4.dp
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = urlInput,
+                        onValueChange = { urlInput = it },
+                        modifier = Modifier.weight(1f).height(50.dp),
+                        singleLine = true,
+                        shape = RoundedCornerShape(24.dp),
+                        placeholder = { Text("Enter URL") },
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Go),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                            onGo = {
+                                val u = if (urlInput.startsWith("http")) urlInput else "https://$urlInput"
+                                webView?.loadUrl(u)
+                            }
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    IconButton(
+                        onClick = { isDesktopMode = !isDesktopMode },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isDesktopMode) Icons.Default.Computer else Icons.Default.Smartphone,
+                            contentDescription = "Toggle Desktop Mode",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    IconButton(
+                        onClick = { 
+                            val u = if (urlInput.startsWith("http")) urlInput else "https://$urlInput"
+                            webView?.loadUrl(u) 
+                        },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(20.dp))
+                    ) {
+                        Icon(Icons.Default.ArrowForward, contentDescription = "Go", tint = MaterialTheme.colorScheme.onPrimary)
+                    }
                 }
             }
         }
