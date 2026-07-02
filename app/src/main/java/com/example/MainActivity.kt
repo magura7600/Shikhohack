@@ -85,21 +85,24 @@ fun MainScreen(downloaderViewModel: DownloaderViewModel = androidx.lifecycle.vie
     var browserInitialUrl by remember { mutableStateOf<String?>(null) }
     var isBarsVisible by remember { mutableStateOf(true) }
     
-    Scaffold(
-        bottomBar = {
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isWideScreen = configuration.screenWidthDp >= 600
+    
+    Row(modifier = Modifier.fillMaxSize()) {
+        if (isWideScreen) {
             androidx.compose.animation.AnimatedVisibility(
                 visible = isBarsVisible || currentTab == Tab.Downloader,
-                enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }),
-                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it })
+                enter = androidx.compose.animation.slideInHorizontally(initialOffsetX = { -it }),
+                exit = androidx.compose.animation.slideOutHorizontally(targetOffsetX = { -it })
             ) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)) {
-                    NavigationBarItem(
+                NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)) {
+                    NavigationRailItem(
                         selected = currentTab == Tab.Downloader,
                         onClick = { currentTab = Tab.Downloader },
                         icon = { Icon(Icons.Default.Download, contentDescription = "Downloader") },
                         label = { Text("Downloader") }
                     )
-                    NavigationBarItem(
+                    NavigationRailItem(
                         selected = currentTab == Tab.Browser,
                         onClick = { currentTab = Tab.Browser },
                         icon = { Icon(Icons.Default.Public, contentDescription = "Browser") },
@@ -108,31 +111,58 @@ fun MainScreen(downloaderViewModel: DownloaderViewModel = androidx.lifecycle.vie
                 }
             }
         }
-    ) { padding ->
-        Box(modifier = Modifier.padding(bottom = padding.calculateBottomPadding()).fillMaxSize()) {
-            FBDownloaderScreen(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .offset(x = if (currentTab == Tab.Downloader) 0.dp else 10000.dp),
-                viewModel = downloaderViewModel,
-                onOpenInBrowser = { url ->
-                    browserInitialUrl = url
-                    currentTab = Tab.Browser
+        
+        Scaffold(
+            bottomBar = {
+                if (!isWideScreen) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isBarsVisible || currentTab == Tab.Downloader,
+                        enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }),
+                        exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it })
+                    ) {
+                        NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)) {
+                            NavigationBarItem(
+                                selected = currentTab == Tab.Downloader,
+                                onClick = { currentTab = Tab.Downloader },
+                                icon = { Icon(Icons.Default.Download, contentDescription = "Downloader") },
+                                label = { Text("Downloader") }
+                            )
+                            NavigationBarItem(
+                                selected = currentTab == Tab.Browser,
+                                onClick = { currentTab = Tab.Browser },
+                                icon = { Icon(Icons.Default.Public, contentDescription = "Browser") },
+                                label = { Text("Browser") }
+                            )
+                        }
+                    }
                 }
-            )
-            BrowserScreen(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .offset(x = if (currentTab == Tab.Browser) 0.dp else 10000.dp),
-                isActive = currentTab == Tab.Browser,
-                initialUrl = browserInitialUrl,
-                isBarsVisible = isBarsVisible,
-                onBarsVisibilityChange = { isBarsVisible = it },
-                onVideoDetected = { url ->
-                    downloaderViewModel.setUrl(url)
-                    currentTab = Tab.Downloader
-                }
-            )
+            }
+        ) { padding ->
+            Box(modifier = Modifier.padding(bottom = padding.calculateBottomPadding()).fillMaxSize()) {
+                FBDownloaderScreen(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .offset(x = if (currentTab == Tab.Downloader) 0.dp else 10000.dp),
+                    viewModel = downloaderViewModel,
+                    onOpenInBrowser = { url ->
+                        browserInitialUrl = url
+                        currentTab = Tab.Browser
+                    }
+                )
+                BrowserScreen(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .offset(x = if (currentTab == Tab.Browser) 0.dp else 10000.dp),
+                    isActive = currentTab == Tab.Browser,
+                    initialUrl = browserInitialUrl,
+                    isBarsVisible = isBarsVisible,
+                    onBarsVisibilityChange = { isBarsVisible = it },
+                    onVideoDetected = { url ->
+                        downloaderViewModel.setUrl(url)
+                        currentTab = Tab.Downloader
+                    }
+                )
+            }
         }
     }
 }
@@ -142,7 +172,9 @@ fun MainScreen(downloaderViewModel: DownloaderViewModel = androidx.lifecycle.vie
 fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initialUrl: String? = null, isBarsVisible: Boolean = true, onBarsVisibilityChange: (Boolean) -> Unit = {}, onVideoDetected: ((String) -> Unit)? = null) {
     var urlInput by remember { mutableStateOf("https://app.shikho.com/") }
     var webView by remember { mutableStateOf<WebView?>(null) }
-    var isDesktopMode by remember { mutableStateOf(false) }
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isWideScreen = configuration.screenWidthDp >= 600
+    var isDesktopMode by remember { mutableStateOf(isWideScreen) }
     var detectedVideoUrl by remember { mutableStateOf<String?>(null) }
     val isImeVisible = androidx.compose.foundation.layout.WindowInsets.Companion.isImeVisible
     
@@ -152,8 +184,9 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
         }
     }
     
-    val mobileUserAgent = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-    val desktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    val defaultUserAgent = android.webkit.WebSettings.getDefaultUserAgent(androidx.compose.ui.platform.LocalContext.current)
+    val mobileUserAgent = defaultUserAgent
+    val desktopUserAgent = defaultUserAgent.replace("Mobile", "").replace("Android", "Windows NT 10.0")
     
     LaunchedEffect(initialUrl) {
         if (initialUrl != null && initialUrl != urlInput && initialUrl.startsWith("http")) {
@@ -262,13 +295,31 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
                                 }
                                 
                                 val newWebView = WebView(context).apply {
+                                    settings.javaScriptEnabled = true
+                                    settings.domStorageEnabled = true
+                                    settings.userAgentString = view?.settings?.userAgentString ?: desktopUserAgent
                                     webViewClient = object : WebViewClient() {
                                         override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
-                                            this@apply.loadUrl(request?.url.toString())
+                                            view?.loadUrl(request?.url.toString())
                                             return true
                                         }
                                     }
                                 }
+                                
+                                val dialog = android.app.Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen).apply {
+                                    setContentView(newWebView)
+                                    window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+                                    window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                                    show()
+                                }
+                                newWebView.requestFocus()
+                                
+                                newWebView.webChromeClient = object : WebChromeClient() {
+                                    override fun onCloseWindow(window: WebView?) {
+                                        dialog.dismiss()
+                                    }
+                                }
+                                
                                 val transport = resultMsg?.obj as? WebView.WebViewTransport
                                 transport?.webView = newWebView
                                 resultMsg?.sendToTarget()
