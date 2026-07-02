@@ -80,7 +80,7 @@ class MainActivity : ComponentActivity() {
 enum class Tab { Downloader, Browser }
 
 @Composable
-fun MainScreen() {
+fun MainScreen(downloaderViewModel: DownloaderViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
     var currentTab by remember { mutableStateOf(Tab.Downloader) }
     
     Scaffold(
@@ -105,13 +105,18 @@ fun MainScreen() {
             FBDownloaderScreen(
                 modifier = Modifier
                     .fillMaxSize()
-                    .offset(x = if (currentTab == Tab.Downloader) 0.dp else 10000.dp)
+                    .offset(x = if (currentTab == Tab.Downloader) 0.dp else 10000.dp),
+                viewModel = downloaderViewModel
             )
             BrowserScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .offset(x = if (currentTab == Tab.Browser) 0.dp else 10000.dp),
-                isActive = currentTab == Tab.Browser
+                isActive = currentTab == Tab.Browser,
+                onVideoDetected = { url ->
+                    downloaderViewModel.setUrl(url)
+                    currentTab = Tab.Downloader
+                }
             )
         }
     }
@@ -119,10 +124,11 @@ fun MainScreen() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true) {
+fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, onVideoDetected: ((String) -> Unit)? = null) {
     var urlInput by remember { mutableStateOf("https://app.shikho.com/") }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var isDesktopMode by remember { mutableStateOf(false) }
+    var detectedVideoUrl by remember { mutableStateOf<String?>(null) }
     
     val mobileUserAgent = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Mobile Safari/537.36"
     val desktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
@@ -187,33 +193,89 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true) {
             )
         )
         
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { context ->
-                WebView(context).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.databaseEnabled = true
-                    settings.userAgentString = if (isDesktopMode) desktopUserAgent else mobileUserAgent
-                    
-                    val cookieManager = CookieManager.getInstance()
-                    cookieManager.setAcceptCookie(true)
-                    cookieManager.setAcceptThirdPartyCookies(this, true)
-                    
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            super.onPageFinished(view, url)
-                            CookieManager.getInstance().flush()
-                            url?.let { urlInput = it }
+        Box(modifier = Modifier.fillMaxSize()) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { context ->
+                    WebView(context).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.databaseEnabled = true
+                        settings.userAgentString = if (isDesktopMode) desktopUserAgent else mobileUserAgent
+                        
+                        val cookieManager = CookieManager.getInstance()
+                        cookieManager.setAcceptCookie(true)
+                        cookieManager.setAcceptThirdPartyCookies(this, true)
+                        
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                super.onPageFinished(view, url)
+                                CookieManager.getInstance().flush()
+                                url?.let { urlInput = it }
+                                
+                                view?.evaluateJavascript("""
+                                    (function() {
+                                        var videos = document.getElementsByTagName('video');
+                                        for(var i=0; i<videos.length; i++) {
+                                            if(videos[i].src && !videos[i].src.startsWith('blob:')) return videos[i].src;
+                                        }
+                                        var iframes = document.getElementsByTagName('iframe');
+                                        for(var i=0; i<iframes.length; i++) {
+                                            if(iframes[i].src && iframes[i].src.indexOf('vimeo.com') !== -1) return iframes[i].src;
+                                            if(iframes[i].src && iframes[i].src.indexOf('youtube.com') !== -1) return iframes[i].src;
+                                        }
+                                        return null;
+                                    })();
+                                """.trimIndent()) { result ->
+                                    if (result != null && result != "null") {
+                                        val unquoted = result.trim('"')
+                                        if (unquoted.isNotBlank()) {
+                                            detectedVideoUrl = unquoted
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            override fun onLoadResource(view: WebView?, url: String?) {
+                                super.onLoadResource(view, url)
+                                if (url != null) {
+                                    val lower = url.lowercase()
+                                    if ((lower.contains("player.vimeo.com/video/") || lower.endsWith(".mp4") || lower.contains(".mp4?") || lower.endsWith(".m3u8") || lower.contains(".m3u8?")) && !lower.contains("blank") && !lower.startsWith("blob:")) {
+                                        detectedVideoUrl = url
+                                    }
+                                }
+                            }
                         }
+                        webChromeClient = WebChromeClient()
+                        loadUrl(urlInput)
+                        webView = this
                     }
-                    webChromeClient = WebChromeClient()
-                    loadUrl(urlInput)
-                    webView = this
+                },
+                update = { }
+            )
+            
+            androidx.compose.animation.AnimatedVisibility(
+                visible = detectedVideoUrl != null,
+                enter = scaleIn() + fadeIn(),
+                exit = scaleOut() + fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(24.dp)
+            ) {
+                FloatingActionButton(
+                    onClick = { 
+                        detectedVideoUrl?.let { url ->
+                            onVideoDetected?.invoke(url)
+                            detectedVideoUrl = null // Reset after sending
+                        }
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = "Download Detected Video", modifier = Modifier.size(28.dp))
                 }
-            },
-            update = { }
-        )
+            }
+        }
     }
 }
 
@@ -322,14 +384,9 @@ class DownloaderViewModel : ViewModel() {
             com.yausername.youtubedl_android.YoutubeDL.getInstance().init(context)
             val request = com.yausername.youtubedl_android.YoutubeDLRequest(resolvedUrl)
             request.addOption("-J") // Dump JSON info
+            request.addOption("--no-check-certificate")
             
-            // Pass cookies from WebView session
-            val cookieManager = CookieManager.getInstance()
-            val cookies = cookieManager.getCookie(resolvedUrl)
-            if (!cookies.isNullOrEmpty()) {
-                request.addOption("--add-header", "Cookie: $cookies")
-                request.addOption("--add-header", "User-Agent: Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Mobile Safari/537.36")
-            }
+            // Note: Not passing cookies as a header anymore to avoid yt-dlp error
             
             val videoInfo = com.yausername.youtubedl_android.YoutubeDL.getInstance().getInfo(request)
             
@@ -435,6 +492,15 @@ fun FBDownloaderScreen(
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollState = rememberScrollState()
+
+    LaunchedEffect(urlInput) {
+        if (urlInput.isNotBlank() && urlInput.startsWith("http")) {
+            kotlinx.coroutines.delay(800)
+            if (videoOptions == null && !isLoading) {
+                viewModel.extractOptions(context)
+            }
+        }
+    }
 
     LaunchedEffect(errorMessage) {
         errorMessage?.let {
@@ -655,7 +721,33 @@ fun FBDownloaderScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            // Video Preview
+                            val previewUrl = options.links.lastOrNull()?.url
+                            if (previewUrl != null) {
+                                AndroidView(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(200.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(androidx.compose.ui.graphics.Color.Black),
+                                    factory = { ctx ->
+                                        android.widget.VideoView(ctx).apply {
+                                            setVideoURI(Uri.parse(previewUrl))
+                                            val mediaController = android.widget.MediaController(ctx)
+                                            mediaController.setAnchorView(this)
+                                            setMediaController(mediaController)
+                                            setOnPreparedListener { mp ->
+                                                mp.setVolume(0f, 0f) // Mute preview
+                                                start()
+                                            }
+                                        }
+                                    }
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                            }
+                            
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             Spacer(modifier = Modifier.height(16.dp))
                             
