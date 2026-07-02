@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "btch-downloader": "^6.0.36",
+    "fbvideodl": "^1.0.0",
+    "ruhend-scraper": "^10.0.3",
+    "shadowx-fbdl": "^1.1.0"
+  }
+}
