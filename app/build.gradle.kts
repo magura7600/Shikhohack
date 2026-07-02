@@ -24,7 +24,6 @@ android {
     
     ndk {
         abiFilters.add("arm64-v8a")
-        abiFilters.add("armeabi-v7a")
     }
   }
 
@@ -41,7 +40,8 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }

@@ -82,6 +82,7 @@ enum class Tab { Downloader, Browser }
 @Composable
 fun MainScreen(downloaderViewModel: DownloaderViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
     var currentTab by remember { mutableStateOf(Tab.Downloader) }
+    var browserInitialUrl by remember { mutableStateOf<String?>(null) }
     
     Scaffold(
         bottomBar = {
@@ -106,13 +107,18 @@ fun MainScreen(downloaderViewModel: DownloaderViewModel = androidx.lifecycle.vie
                 modifier = Modifier
                     .fillMaxSize()
                     .offset(x = if (currentTab == Tab.Downloader) 0.dp else 10000.dp),
-                viewModel = downloaderViewModel
+                viewModel = downloaderViewModel,
+                onOpenInBrowser = { url ->
+                    browserInitialUrl = url
+                    currentTab = Tab.Browser
+                }
             )
             BrowserScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .offset(x = if (currentTab == Tab.Browser) 0.dp else 10000.dp),
                 isActive = currentTab == Tab.Browser,
+                initialUrl = browserInitialUrl,
                 onVideoDetected = { url ->
                     downloaderViewModel.setUrl(url)
                     currentTab = Tab.Downloader
@@ -124,7 +130,7 @@ fun MainScreen(downloaderViewModel: DownloaderViewModel = androidx.lifecycle.vie
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, onVideoDetected: ((String) -> Unit)? = null) {
+fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initialUrl: String? = null, onVideoDetected: ((String) -> Unit)? = null) {
     var urlInput by remember { mutableStateOf("https://app.shikho.com/") }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var isDesktopMode by remember { mutableStateOf(false) }
@@ -132,6 +138,13 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, onVid
     
     val mobileUserAgent = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Mobile Safari/537.36"
     val desktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+    
+    LaunchedEffect(initialUrl) {
+        if (initialUrl != null && initialUrl != urlInput && initialUrl.startsWith("http")) {
+            urlInput = initialUrl
+            webView?.loadUrl(initialUrl)
+        }
+    }
     
     // Provide a way to go back in WebView
     BackHandler(enabled = isActive && webView?.canGoBack() == true) {
@@ -292,7 +305,7 @@ data class VideoOptions(
 )
 
 class DownloaderViewModel : ViewModel() {
-    private val _urlInput = MutableStateFlow("https://www.facebook.com/shikho.bangladesh/videos/1556415209387103/")
+    private val _urlInput = MutableStateFlow("https://app.shikho.com/student/my-courses/66ded32c200b71b713310469?type=academic&phaseId=66e2b27d91a185ece5cf2226&subId=609130954&c_id=66bc424c953e27cc8213370d&contentDisplayed=true")
     val urlInput: StateFlow<String> = _urlInput.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
@@ -481,7 +494,8 @@ class DownloaderViewModel : ViewModel() {
 @Composable
 fun FBDownloaderScreen(
     modifier: Modifier = Modifier,
-    viewModel: DownloaderViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    viewModel: DownloaderViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    onOpenInBrowser: ((String) -> Unit)? = null
 ) {
     val urlInput by viewModel.urlInput.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -492,8 +506,10 @@ fun FBDownloaderScreen(
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollState = rememberScrollState()
+    var showBrowserPrompt by remember { mutableStateOf(false) }
 
     LaunchedEffect(urlInput) {
+        showBrowserPrompt = false
         if (urlInput.isNotBlank() && urlInput.startsWith("http")) {
             kotlinx.coroutines.delay(800)
             if (videoOptions == null && !isLoading) {
@@ -504,6 +520,9 @@ fun FBDownloaderScreen(
 
     LaunchedEffect(errorMessage) {
         errorMessage?.let {
+            if (it.contains("Unsupported URL") || it.contains("Extraction failed")) {
+                showBrowserPrompt = true
+            }
             snackbarHostState.showSnackbar(it)
             viewModel.clearError()
         }
@@ -671,6 +690,52 @@ fun FBDownloaderScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+            
+            // Browser Prompt Card
+            AnimatedVisibility(
+                visible = showBrowserPrompt,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 24.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.size(32.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Direct extraction failed. This site might require login or uses unsupported players.",
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            textAlign = TextAlign.Center,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = { 
+                                showBrowserPrompt = false
+                                onOpenInBrowser?.invoke(urlInput)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.onErrorContainer,
+                                contentColor = MaterialTheme.colorScheme.errorContainer
+                            )
+                        ) {
+                            Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Open in Browser to Extract")
+                        }
+                    }
+                }
+            }
 
             // Animated Results Card
             AnimatedVisibility(
