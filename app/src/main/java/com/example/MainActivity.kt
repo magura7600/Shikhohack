@@ -136,8 +136,8 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
     var isDesktopMode by remember { mutableStateOf(false) }
     var detectedVideoUrl by remember { mutableStateOf<String?>(null) }
     
-    val mobileUserAgent = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Mobile Safari/537.36"
-    val desktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+    val mobileUserAgent = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+    val desktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     
     LaunchedEffect(initialUrl) {
         if (initialUrl != null && initialUrl != urlInput && initialUrl.startsWith("http")) {
@@ -152,7 +152,13 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
     }
     
     LaunchedEffect(isDesktopMode) {
-        webView?.settings?.userAgentString = if (isDesktopMode) desktopUserAgent else mobileUserAgent
+        webView?.settings?.apply {
+            userAgentString = if (isDesktopMode) desktopUserAgent else mobileUserAgent
+            useWideViewPort = isDesktopMode
+            loadWithOverviewMode = isDesktopMode
+            builtInZoomControls = isDesktopMode
+            displayZoomControls = false
+        }
         webView?.reload()
     }
     
@@ -214,6 +220,13 @@ fun BrowserScreen(modifier: Modifier = Modifier, isActive: Boolean = true, initi
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         settings.databaseEnabled = true
+                        settings.javaScriptCanOpenWindowsAutomatically = true
+                        settings.mediaPlaybackRequiresUserGesture = false
+                        settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                        settings.useWideViewPort = isDesktopMode
+                        settings.loadWithOverviewMode = isDesktopMode
+                        settings.builtInZoomControls = isDesktopMode
+                        settings.displayZoomControls = false
                         settings.userAgentString = if (isDesktopMode) desktopUserAgent else mobileUserAgent
                         
                         val cookieManager = CookieManager.getInstance()
